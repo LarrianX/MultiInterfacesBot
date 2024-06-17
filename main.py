@@ -1,3 +1,4 @@
+import asyncio
 import os
 import threading
 from typing import Any
@@ -25,13 +26,9 @@ def get_interfaces(base: BaseInterface):
     return result
 
 
-def start_interfaces(interfaces: list[Interface]) -> list[threading.Thread]:
-    processes = []
-    for i in interfaces:
-        thread = threading.Thread(target=i.start)
-        processes.append(thread)
-        thread.start()
-    return processes
+async def async_start(interfaces: list[Interface]):
+    coroutines = [i.start() for i in interfaces]
+    await asyncio.gather(*coroutines)
 
 
 if __name__ == '__main__':
@@ -39,11 +36,13 @@ if __name__ == '__main__':
 
     base_ = base.BaseInterface(None)
     interfaces: list[Any] = get_interfaces(base_)
-    interfaces[0].start()
+    print(interfaces)
 
-    # # Запускаем интерфейсы
-    # threads = start_interfaces(base_, interfaces)
-    #
-    # # Ждем завершения всех потоков
-    # for thread in threads:
-    #     thread.join()
+    coro = async_start(interfaces)
+    for i in interfaces:
+        if i.__class__.__name__ == "TelegramInterface":
+            with i.client:
+                i.client.loop.run_until_complete(coro)
+                break
+    else:
+        asyncio.run(coro)

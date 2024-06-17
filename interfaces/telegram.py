@@ -214,15 +214,11 @@ class TelegramInterface(base.Interface):
         tl_object = await self.client.send_message(id_, text)
         return await self.transform(tl_object)
 
-    async def _start(self):
-        print("Client has started.")
+    async def start(self):
+        print("Клиент запущен.")
         await self.send_message(1667209703, "Бот запущен.")
         await self.client.start(self.bot_token)
         await self.client.run_until_disconnected()
-
-    def start(self):
-        with self.client:
-            self.client.loop.run_until_complete(self._start())
 
 
 def get():

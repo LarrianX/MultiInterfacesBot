@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 def format_bytes(size):
     # 2**10 = 1024
-    power = 2**10
+    power = 2 ** 10
     n = 0
     power_labels = {0: '', 1: 'K', 2: 'M', 3: 'G', 4: 'T'}
     while size > power:
@@ -57,14 +57,16 @@ class Photo(Media, ABC):
 
 
 class Video(Media, ABC):
-    def __init__(self, id_: int, file_size: int, duration: int | float, file_name: str = "", source: Any = None, caller: object = None):
+    def __init__(self, id_: int, file_size: int, duration: int | float, file_name: str = "", source: Any = None,
+                 caller: object = None):
         super().__init__(id_, file_size, file_name, source, caller)
         self.duration = duration
         # И сюда тоже
 
 
 class Audio(Media, ABC):
-    def __init__(self, id_: int, file_size: int, duration: int | float, file_name: str = "", source: Any = None, caller: object = None):
+    def __init__(self, id_: int, file_size: int, duration: int | float, file_name: str = "", source: Any = None,
+                 caller: object = None):
         super().__init__(id_, file_size, file_name, source, caller)
         self.duration = duration
 
@@ -194,7 +196,6 @@ class BaseInterface:
                         f.write(b)
 
 
-
 class Interface(ABC):
     def __init__(self, base_interface: BaseInterface, caller: object = None):
         self.base_interface = base_interface
@@ -214,5 +215,5 @@ class Interface(ABC):
         pass
 
     @abstractmethod
-    def start(self):
+    async def start(self):
         pass
