@@ -36,7 +36,7 @@ if __name__ == '__main__':
 
     base_ = base.BaseInterface(None)
     interfaces: list[Any] = get_interfaces(base_)
-    print(interfaces)
+    # print(interfaces)
 
     coro = async_start(interfaces)
     for i in interfaces:
