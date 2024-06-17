@@ -5,8 +5,10 @@ from enum import Enum
 import logging
 import os
 
+import telethon
+
 logger = logging.getLogger(__name__)
-# Проверка
+
 
 def format_bytes(size):
     # 2**10 = 1024
@@ -48,6 +50,36 @@ class Media(Entity, ABC):
 
     def __repr__(self):
         return f"{self.__class__.__name__} {format_bytes(self.file_size)}"
+
+
+class Sticker(Media, ABC):
+    def __init__(self, id_: int, file_size: int, alt: str, sticker_set: Any, file_name: str = "",
+                 source: Any = None, caller: object = None):
+        super().__init__(id_, file_size, file_name, source, caller)
+        self.alt = alt  # смайл, сходный с содержанием со стикером
+        self.sticker_set = sticker_set
+
+
+class AnimatedSticker(Sticker, ABC):
+    def __init__(self, id_: int, file_size: int, duration: int | float, alt: str, sticker_set: Any, file_name: str = "",
+                 source: Any = None, caller: object = None):
+        super().__init__(id_, file_size, alt, sticker_set, file_name, source, caller)
+        self.duration = duration
+
+
+class StickerSet(Entity, ABC):
+    def __init__(self, id_: int, title: str, count_stickers: int, source: Any = None, caller: object = None):
+        super().__init__(id_, source, caller)
+        self.title = title
+        self.count_stickers = count_stickers
+
+    @abstractmethod
+    async def get_all_stickers(self) -> list[Sticker]:
+        pass
+
+    @abstractmethod
+    async def get_sticker_by_index(self, index: int) -> Sticker:
+        pass
 
 
 class Photo(Media, ABC):
@@ -128,17 +160,28 @@ class Message(Entity, ABC):
 class BaseInterface:
     def __init__(self, user_db: Any):
         self.user_db = user_db
+        # В будущем этого недоразумения не будет
+        self.await_download_users = []
+        self.await_test_users = []
 
     async def message_handler(self, message: Message):
         try:
-            text = message.text
-            user = message.from_user
+
+            if message.entities and message.from_user.id in self.await_test_users:
+                # Лишь дебажная вещь
+                message.text = "/test"
+            elif message.entities and message.from_user.id in self.await_download_users:
+                message.text = "/download"
+                self.await_download_users.remove(message.from_user.id)
+
             print(message.source)
             print(message.entities)
-            print(f"{user}: {text!r}")
+            print(f"{message.from_user}: {message.text!r}")
 
-            if text.startswith("/"):
+            if message.text.startswith("/"):
                 await self.command_handler(message)
+        # except SystemExit as e:
+        #     pass
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}")
             await message.answer("Произошла ошибка при обработке вашего сообщения.")
@@ -157,7 +200,7 @@ class BaseInterface:
                         f"Недостаточно аргументов. Ожидалось как минимум: {num_args_expected}, получено: {num_args_provided}")
                 result = await func(message, *args)
                 if result:
-                    await message.answer(result)
+                    await message.reply(result)
             else:
                 logger.warning(f"Неизвестная команда: {command}")
                 await message.answer(f"Неизвестная команда: {command}")
@@ -167,6 +210,17 @@ class BaseInterface:
         except Exception as e:
             logger.error(f"Ошибка при обработке команды: {e}")
             await message.answer("Произошла ошибка при обработке вашей команды.")
+
+    async def _download(self, media: Media):
+        if hasattr(media, "get"):
+            b = await media.get()
+            if media.file_name:
+                file_name = media.file_name
+            else:
+                file_name = "unknown"
+                logger.warning(f"Неизвестный тип сущности: {type(media)}")
+            with open(file_name, "wb") as f:
+                f.write(b)
 
     async def echo(self, message: Message, *args):
         return message.text
@@ -179,21 +233,25 @@ class BaseInterface:
 
     async def download(self, message: Message, *args):
         if message.entities:
-            for entity in message.entities:
-                if hasattr(entity, "get"):
-                    b = await entity.get()
-                    if isinstance(entity, Photo):
-                        file_name = "photo.jpg"
-                    elif isinstance(entity, Video):
-                        file_name = "video.mp4"
-                    elif isinstance(entity, Audio):
-                        file_name = "audio.mp3"
-                    elif isinstance(entity, Document):
-                        file_name = entity.file_name
-                    else:
-                        logger.warning(f"Неизвестный тип сущности: {type(entity)}")
-                    with open(file_name, "wb") as f:
-                        f.write(b)
+            for media in message.entities:
+                self._download(media)
+            return "Скачано!"
+        else:
+            self.await_download_users.append(message.from_user.id)
+            print(self.await_download_users)  # TODO: использовать logging
+            return "Ожидаю медиа..."
+
+    async def test(self, message: Message, *args):
+        if message.entities:
+            for media in message.entities:
+                media: Sticker
+                set_: StickerSet = media.sticker_set
+                await self._download(await set_.get_sticker_by_index(0))
+            return "Что-то произошло"
+        else:
+            self.await_test_users.append(message.from_user.id)
+            print(self.await_test_users)
+            return "Ожидаю тестирование..."
 
 
 class Interface(ABC):
