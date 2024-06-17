@@ -6,7 +6,7 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
-# Проверка
+
 
 def format_bytes(size):
     # 2**10 = 1024
@@ -48,6 +48,36 @@ class Media(Entity, ABC):
 
     def __repr__(self):
         return f"{self.__class__.__name__} {format_bytes(self.file_size)}"
+
+
+class Sticker(Media, ABC):
+    def __init__(self, id_: int, file_size: int, alt: str, sticker_set: Any, file_name: str = "",
+                 source: Any = None, caller: object = None):
+        super().__init__(id_, file_size, file_name, source, caller)
+        self.alt = alt  # смайл, сходный с содержанием со стикером
+        self.sticker_set = sticker_set
+
+
+class AnimatedSticker(Sticker, ABC):
+    def __init__(self, id_: int, file_size: int, duration: int | float, alt: str, sticker_set: Any, file_name: str = "",
+                 source: Any = None, caller: object = None):
+        super().__init__(id_, file_size, alt, sticker_set, file_name, source, caller)
+        self.duration = duration
+
+
+class StickerSet(Entity, ABC):
+    def __init__(self, id_: int, title: str, count_stickers: int, source: Any = None, caller: object = None):
+        super().__init__(id_, source, caller)
+        self.title = title
+        self.count_stickers = count_stickers
+
+    @abstractmethod
+    async def get_all_stickers(self) -> list[Sticker]:
+        pass
+
+    @abstractmethod
+    async def get_sticker_by_index(self, index: int) -> Sticker:
+        pass
 
 
 class Photo(Media, ABC):
@@ -128,16 +158,19 @@ class Message(Entity, ABC):
 class BaseInterface:
     def __init__(self, user_db: Any):
         self.user_db = user_db
+        self.await_users = []
 
     async def message_handler(self, message: Message):
         try:
-            text = message.text
-            user = message.from_user
+
+            if message.entities and message.from_user.id in self.await_users:
+                message.text = "/download"
+
             print(message.source)
             print(message.entities)
-            print(f"{user}: {text!r}")
+            print(f"{message.from_user}: {message.text!r}")
 
-            if text.startswith("/"):
+            if message.text.startswith("/"):
                 await self.command_handler(message)
         except Exception as e:
             logger.error(f"Ошибка при обработке сообщения: {e}")
@@ -157,7 +190,7 @@ class BaseInterface:
                         f"Недостаточно аргументов. Ожидалось как минимум: {num_args_expected}, получено: {num_args_provided}")
                 result = await func(message, *args)
                 if result:
-                    await message.answer(result)
+                    await message.reply(result)
             else:
                 logger.warning(f"Неизвестная команда: {command}")
                 await message.answer(f"Неизвестная команда: {command}")
@@ -182,18 +215,20 @@ class BaseInterface:
             for entity in message.entities:
                 if hasattr(entity, "get"):
                     b = await entity.get()
-                    if isinstance(entity, Photo):
-                        file_name = "photo.jpg"
-                    elif isinstance(entity, Video):
-                        file_name = "video.mp4"
-                    elif isinstance(entity, Audio):
-                        file_name = "audio.mp3"
-                    elif isinstance(entity, Document):
+                    if entity.file_name:
                         file_name = entity.file_name
                     else:
+                        file_name = "unknown"
                         logger.warning(f"Неизвестный тип сущности: {type(entity)}")
                     with open(file_name, "wb") as f:
                         f.write(b)
+            return "Скачано!"
+        else:
+            self.await_users.append(message.from_user.id)
+            print(self.await_users)
+            return "Ожидаю медиа..."
+
+
 
 
 class Interface(ABC):

@@ -1,13 +1,15 @@
 from dataclasses import dataclass
 from typing import Any
 import datetime
+import logging
 import os
 
 import base
 from base import Entity, Media, User
 
 import telethon
-import telethon.tl.patched
+import telethon.tl.patched # надо избавиться от этого и сделать как ниже
+from telethon.tl.functions.messages import GetStickerSetRequest
 
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
@@ -27,8 +29,8 @@ def decode(n: int, encoding="utf-8") -> tuple[str, int]:
 
 
 class TelegramMedia(base.Media):
-    def __init__(self, id_: int, file_size: int, source: Any = None, caller: base.Interface = None):
-        super().__init__(id_, file_size, source, caller)
+    def __init__(self, id_: int, file_size: int, file_name: str, source: Any = None, caller: base.Interface = None):
+        super().__init__(id_, file_size, file_name, source, caller)
 
     async def get(self):
         if isinstance(self.source, bytes):
@@ -37,24 +39,46 @@ class TelegramMedia(base.Media):
             return await self.caller.client.download_media(self.source, file=bytes)
 
 
+class TelegramSticker(base.Sticker, TelegramMedia):
+    def __init__(self, id_: int, file_size: int, alt: str, sticker_set: Any, file_name: str = "sticker.webp",
+                 source: Any = None, caller: base.Interface = None):
+        super().__init__(id_, file_size, alt, sticker_set, file_name, source, caller)
+
+
+class TelegramAnimatedSticker(base.AnimatedSticker, TelegramSticker):
+    def __init__(self, id_: int, file_size: int, duration: int | float, alt: str, sticker_set: Any,
+                 file_name: str = "sticker.webm",
+                 source: Any = None, caller: base.Interface = None):
+        super().__init__(id_, file_size, duration, alt, sticker_set, file_name, source, caller)
+
+
+class TelegramStickerSet(base.StickerSet):
+    def __init__(self, id_: int, title: str, count_stickers: int, source: Any = None, caller: object = None):
+        super().__init__(id_, title, count_stickers, source, caller)
+
+    async def get_all_stickers(self) -> list[TelegramSticker]:
+        return self.source.documents
+
+    async def get_sticker_by_index(self, index: int) -> TelegramSticker:
+        return self.source.documents[index]
+
+
 class TelegramPhoto(base.Photo, TelegramMedia):
-    def __init__(self, id_: int, file_size: int, source: Any = None, caller: base.Interface = None):
+    def __init__(self, id_: int, file_size: int, file_name: str = "image.jpg", source: Any = None, caller: base.Interface = None):
         # TelegramMedia.__init__(self, id_, file_size, source, caller)
-        super().__init__(id_, file_size, source, caller)
-        # Я не совсем понимаю какой конструктор в этом случае вызывать. Кажется я уже погряз в этом ООП.
-        # Буду исходить из base
+        super().__init__(id_, file_size, file_name, source, caller)
         # Также в принципе сюда можно добавить разрешение картинки.
 
 
 class TelegramVideo(base.Video, TelegramMedia):
-    def __init__(self, id_: int, file_size: int, duration: int | float, source: Any = None, caller: base.Interface = None):
-        super().__init__(id_, file_size, duration, source, caller)
+    def __init__(self, id_: int, file_size: int, duration: int | float, file_name: str = "video.mp4", source: Any = None, caller: base.Interface = None):
+        super().__init__(id_, file_size, duration, file_name, source, caller)
         # Также в принципе сюда можно добавить разрешение видео.
 
 
 class TelegramAudio(base.Audio, TelegramMedia):
-    def __init__(self, id_: int, file_size: int, duration: int | float, source: Any = None, caller: base.Interface = None):
-        super().__init__(id_, file_size, duration, source, caller)
+    def __init__(self, id_: int, file_size: int, duration: int | float, file_name: str = "audio.ogg", source: Any = None, caller: base.Interface = None):
+        super().__init__(id_, file_size, duration, file_name, source, caller)
 
 
 class TelegramDocument(base.Document, TelegramMedia):
@@ -107,7 +131,7 @@ class TelegramInterface(base.Interface):
             session_name,
             self.api_id,
             self.api_hash,
-        )
+        ).start(bot_token=self.bot_token)
         self.base_interface = base_interface
         self.buffer: Any = None
 
@@ -117,7 +141,7 @@ class TelegramInterface(base.Interface):
     async def _handle_message(self, event: telethon.events.NewMessage.Event):
         try:
             # Преобразуем сообщение в объект Entity
-            entity: TelegramMessage = await self.transform(event.message)
+            entity: TelegramMessage = await self.transform(event.message)  # type: ignore
 
             # Вызываем обработчик сообщения из base_interface
             await self.base_interface.message_handler(entity)
@@ -154,20 +178,62 @@ class TelegramInterface(base.Interface):
                         caller=self
                     ))
 
-                if isinstance(media, telethon.types.MessageMediaDocument):
+                elif isinstance(media, telethon.types.MessageMediaDocument):
                     size: int = media.document.size
-                    video_attributes = None
+                    sticker_attributes = audio_attributes = image_attributes = video_attributes = None
                     file_name: str = "non defined"
                     for attr in media.document.attributes:
                         if isinstance(attr, telethon.types.DocumentAttributeFilename):
                             file_name: str = attr.file_name
+                        elif isinstance(attr, telethon.types.DocumentAttributeSticker):
+                            sticker_attributes = attr
+                        elif isinstance(attr, telethon.types.DocumentAttributeAudio):
+                            audio_attributes = attr
+                        elif isinstance(attr, telethon.types.DocumentAttributeImageSize):
+                            image_attributes = attr
                         elif isinstance(attr, telethon.types.DocumentAttributeVideo):
                             video_attributes = attr
-                    if video_attributes:
+                    if sticker_attributes:
+                        sticker_set = await self.transform(sticker_attributes.stickerset)  # type: ignore
+                        if image_attributes:
+                            entities.append(TelegramSticker(
+                                media.document.id,
+                                size,
+                                sticker_attributes.alt,
+                                sticker_set,
+                                file_name=file_name,
+                                source=media,
+                                caller=self
+                            ))
+                        elif video_attributes:
+                            entities.append(TelegramAnimatedSticker(
+                                media.document.id,
+                                size,
+                                video_attributes.duration,
+                                sticker_attributes.alt,
+                                sticker_set,
+                                file_name=file_name,
+                                source=media,
+                                caller=self
+                            ))
+                        else:
+                            logging.warning("Ни рыба, ни мясо")
+
+                    elif video_attributes:
                         entities.append(TelegramVideo(
                             media.document.id,
                             size,
                             video_attributes.duration,
+                            file_name=file_name,
+                            source=media,
+                            caller=self
+                        ))
+                    elif audio_attributes:
+                        entities.append(TelegramAudio(
+                            media.document.id,
+                            size,
+                            audio_attributes.duration,
+                            file_name=file_name,
                             source=media,
                             caller=self
                         ))
@@ -175,12 +241,12 @@ class TelegramInterface(base.Interface):
                         entities.append(TelegramDocument(
                             media.document.id,
                             size,
-                            file_name,
+                            file_name=file_name,
                             source=media,
                             caller=self
                         ))
 
-            user: TelegramUser = await self.transform(object_.peer_id)
+            user: TelegramUser = await self.transform(object_.peer_id)  # type: ignore
             return TelegramMessage(
                 object_.id,
                 user,
@@ -199,6 +265,15 @@ class TelegramInterface(base.Interface):
                 caller=self
             )
 
+        elif isinstance(object_, telethon.types.InputStickerSetID):
+            sticker_set: telethon.types.messages.StickerSet = await self.client(GetStickerSetRequest(object_, 0))
+            return TelegramStickerSet(
+                sticker_set.set.id,
+                sticker_set.set.title,
+                len(sticker_set.documents),
+                source=sticker_set,
+                caller=self
+            )
         else:
             raise ValueError(f"Unsupported TLObject type: {type(object_)}")
 
@@ -217,7 +292,6 @@ class TelegramInterface(base.Interface):
     async def start(self):
         print("Клиент запущен.")
         await self.send_message(1667209703, "Бот запущен.")
-        await self.client.start(self.bot_token)
         await self.client.run_until_disconnected()
 
 
