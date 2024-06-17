@@ -6,7 +6,7 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
-
+# Проверка
 
 def format_bytes(size):
     # 2**10 = 1024
