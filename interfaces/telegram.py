@@ -1,15 +1,14 @@
-from dataclasses import dataclass
-from typing import Any
 import datetime
 import logging
 import os
-
-import base
-from base import Entity, Media, User
+from typing import Any, Optional
 
 import telethon
 import telethon.tl.patched  # TODO: избавиться от этого и сделать как ниже
-from telethon.tl.functions.messages import GetStickerSetRequest, GetStickersRequest
+from telethon.tl.functions.messages import GetStickerSetRequest
+
+import base
+from base import Entity, Media, User
 
 API_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
@@ -112,6 +111,21 @@ class TelegramChat(base.Chat):
         super().__init__(id_, type_, title, members, source, caller)
 
 
+class TelegramPollAnswer(base.PollAnswer):
+    def __init__(self, id_: int, text: str, voters: int | list[User], correct: Optional[bool],
+                 source: Any = None, caller: object = None):
+        super().__init__(id_, text, voters, correct, source, caller)
+
+
+class TelegramPoll(base.Poll):
+    def __init__(self, id_: int, question: str, answers: list[TelegramPollAnswer], voters: int | list[User],
+                 public_votes: bool, multiple_choice: bool, quiz: bool, solution: Optional[str], closed: bool,
+                 close_period: Optional[int], close_date: Optional[datetime.datetime],
+                 source: Any = None, caller: object = None):
+        super().__init__(id_, question, answers, voters, public_votes, multiple_choice, quiz, solution,
+                         closed, close_period, close_date, source, caller)
+
+
 class TelegramMessage(base.Message):
     def __init__(self, id_: int, from_user: TelegramUser, chat: TelegramChat, date: datetime.datetime, text: str,
                  entities: list[TelegramMedia],
@@ -181,16 +195,52 @@ class TelegramInterface(base.Interface):
                 media = object_.media
 
                 if isinstance(media, telethon.types.MessageMediaPhoto):
-                    size: int = max(media.photo.sizes[-1].sizes)
-                    entities.append(TelegramPhoto(
-                        media.photo.id,
-                        size,
-                        source=media,
+                    entities.append(await self.transform(media.photo))
+
+                elif isinstance(media, telethon.types.MessageMediaPoll):
+                    answers = []
+                    for ans in media.poll.answers:
+                        answers.append(TelegramPollAnswer(
+                            media.poll.id,
+                            ans.text,
+                            0,
+                            None,
+                            source=media.poll,
+                            caller=self
+                        ))
+                    if not media.results.results and media.results.total_voters:
+                        logging.warning("Не удалось прочитать результаты голосования.")
+
+                    if media.results.recent_voters:
+                        voters = []
+                        for user in media.results.recent_voters:
+                            voters.append(await self.transform(user))
+                    else:
+                        voters = media.results.total_voters
+
+                    solution = media.results.solution if media.poll.quiz and media.results.solution else None
+
+                    entities.append(TelegramPoll(
+                        media.poll.id,
+                        media.poll.question,
+                        answers,
+                        voters,
+                        media.poll.public_voters,
+                        media.poll.multiple_choice,
+                        media.poll.quiz,
+                        solution,
+                        media.poll.closed,
+                        media.poll.close_period,
+                        media.poll.close_date,
+                        source=media.poll,
                         caller=self
                     ))
 
                 elif isinstance(media, telethon.types.MessageMediaDocument):
                     entities.append(await self.transform(media.document))
+
+                else:
+                    logging.info(f"Неизвестный тип медиа: {media}")
 
             user: TelegramUser = await self.transform(object_.peer_id)  # type: ignore
             return TelegramMessage(
@@ -207,6 +257,15 @@ class TelegramInterface(base.Interface):
                 object_.date,
                 object_.message,
                 entities,
+                source=object_,
+                caller=self
+            )
+
+        elif isinstance(object_, telethon.types.Photo):
+            size: int = max(object_.sizes[-1].sizes)
+            return TelegramPhoto(
+                object_.id,
+                size,
                 source=object_,
                 caller=self
             )
@@ -232,6 +291,12 @@ class TelegramInterface(base.Interface):
                     sticker_set = await self.transform(sticker_attributes.stickerset)  # type: ignore
                 elif isinstance(sticker_attributes.stickerset, TelegramStickerSet):
                     sticker_set = sticker_attributes.stickerset  # type: ignore
+                else:
+                    logging.warning("Ни рыба, ни мясо")
+                    # Теоретически такой ситуации вообще не должно возникнуть
+                    print(type(sticker_attributes.stickerset))
+                    sticker_set = TelegramStickerSet(  # type: ignore
+                        0, "", 0, source=sticker_attributes.stickerset, caller=self)  # type: ignore
 
                 if image_attributes:
                     return TelegramSticker(
@@ -293,6 +358,7 @@ class TelegramInterface(base.Interface):
                 source=sticker_set,
                 caller=self
             )
+
         else:
             raise ValueError(f"Unsupported TLObject type: {type(object_)}")
 

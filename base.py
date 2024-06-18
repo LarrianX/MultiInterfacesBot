@@ -1,11 +1,9 @@
 import datetime
-from abc import ABC, abstractmethod
-from typing import Any
-from enum import Enum
 import logging
 import os
-
-import telethon
+from abc import ABC, abstractmethod
+from enum import Enum
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +132,36 @@ class Chat(Entity, ABC):
         self.members = members
 
 
+class PollAnswer(Entity, ABC):
+    def __init__(self, id_: int, text: str, voters: int | list[User], correct: Optional[bool],
+                 source: Any = None, caller: object = None):
+        super().__init__(id_, source, caller)
+        self.text = text
+        self.voters = voters
+        self.correct = correct  # Только если public_votes
+
+
+class Poll(Entity, ABC):
+    def __init__(self, id_: int, question: str, answers: list[PollAnswer], voters: int | list[User],
+                 public_votes: bool, multiple_choice: bool, quiz: bool, solution: Optional[str], closed: bool,
+                 close_period: Optional[int], close_date: Optional[datetime.datetime],
+                 source: Any = None, caller: object = None):
+        super().__init__(id_, source, caller)
+        self.question = question
+        self.answers = answers
+        self.voters = voters
+        self.public_votes = public_votes
+        self.multiple_choice = multiple_choice
+        self.quiz = quiz
+        self.solution = solution
+        self.closed = closed
+        self.close_period = close_period
+        self.close_date = close_date
+
+    def __str__(self):
+        return f"{self.question}({self.voters}) -\n {"\n".join([f"{i.text}: {i.voters}" for i in self.answers])}"
+
+
 class Message(Entity, ABC):
     def __init__(self, id_: int, from_user: User, chat: Chat, date: datetime.datetime, text: str, entities: list[Media],
                  source: Any = None, caller: object = None):
@@ -175,7 +203,8 @@ class BaseInterface:
                 self.await_download_users.remove(message.from_user.id)
 
             print(message.source)
-            print(message.entities)
+            if message.entities:
+                print(message.entities[0])
             print(f"{message.from_user}: {message.text!r}")
 
             if message.text.startswith("/"):
@@ -234,7 +263,7 @@ class BaseInterface:
     async def download(self, message: Message, *args):
         if message.entities:
             for media in message.entities:
-                self._download(media)
+                await self._download(media)
             return "Скачано!"
         else:
             self.await_download_users.append(message.from_user.id)

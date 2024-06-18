@@ -1,6 +1,5 @@
 import asyncio
 import os
-import threading
 from typing import Any
 
 import base
@@ -40,6 +39,7 @@ if __name__ == '__main__':
 
     coro = async_start(interfaces)
     for i in interfaces:
+        # Костыль
         if i.__class__.__name__ == "TelegramInterface":
             with i.client:
                 i.client.loop.run_until_complete(coro)
