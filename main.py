@@ -1,28 +1,37 @@
 import asyncio
+import importlib
 import os
 from typing import Any
 
-import base
-from base import BaseInterface, Interface
+from interfaces.base import Interface, BaseInterface
 
 DIRECTORY = "interfaces"
 
 
-def get_interfaces(base: BaseInterface):
-    result = []
-    dirs = os.listdir(os.path.join(os.getcwd(), DIRECTORY))
-    for i in dirs:
-        if i.endswith(".py") and i != "__init__.py":
-            module_name = i[:-3]
+def load_interfaces(base_interface: BaseInterface, directory=DIRECTORY):
+    results = []
+
+    # Проходим по всем папкам в указанной директории
+    for root, dirs, files in os.walk(directory):
+        # Ищем каталоги с __init__.py
+        if '__init__.py' in files and root != directory:
+            # Определяем модульное имя по пути
+            module_name = os.path.relpath(root, os.getcwd()).replace(os.sep, '.')
+
             try:
-                module = __import__(f"{DIRECTORY}.{module_name}", fromlist=[''])
-                if hasattr(module, 'get'):
-                    interface = module.get()
-                    if hasattr(interface, "__init__"):
-                        result.append(interface(base))
-            except ImportError as e:
-                continue
-    return result
+                # Импортируем модуль
+                module = importlib.import_module(module_name)
+
+                # Проверяем наличие метода get
+                if hasattr(module, 'get') and callable(getattr(module, 'get')):
+                    # Вызываем метод get и добавляем результат в список
+                    class_ = module.get()
+                    results.append(class_(base_interface))
+
+            except Exception as e:
+                print(f"Ошибка при импорте модуля {module_name}: {e}")
+
+    return results
 
 
 async def async_start(interfaces: list[Interface]):
@@ -33,8 +42,8 @@ async def async_start(interfaces: list[Interface]):
 if __name__ == '__main__':
     # Запуск ядра
 
-    base_ = base.BaseInterface(None)
-    interfaces: list[Any] = get_interfaces(base_)
+    base = BaseInterface(None)
+    interfaces: list[Any] = load_interfaces(base)
     # print(interfaces)
 
     coro = async_start(interfaces)

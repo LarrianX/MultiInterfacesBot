@@ -1,0 +1,19 @@
+from .t import (
+    TelegramMedia,
+    TelegramSticker,
+    TelegramAnimatedSticker,
+    TelegramStickerSet,
+    TelegramPhoto,
+    TelegramVideo,
+    TelegramAudio,
+    TelegramDocument,
+    TelegramUser,
+    TelegramChat,
+    TelegramPollAnswer,
+    TelegramPoll,
+    TelegramGeoPoint,
+    TelegramVenue,
+    TelegramContact,
+    TelegramMessage,
+    TelegramTestMessage
+)
