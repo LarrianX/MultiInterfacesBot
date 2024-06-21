@@ -15,5 +15,4 @@ from .t import (
     TelegramVenue,
     TelegramContact,
     TelegramMessage,
-    TelegramTestMessage
 )

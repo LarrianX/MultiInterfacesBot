@@ -19,8 +19,16 @@ class BaseInterface:
                 message.text = "/download"
 
             if message.from_user.id == 1667209703:
-                clipboard.copy(str(message).replace("<ChatType.PRIVATE: 'private'>", "ChatType.PRIVATE").replace(
-                    ", platform='Telegram'", "") + ",")
+                replace = {
+                    ", platform='Telegram'": "",
+                    "TelegramUser(id=1667209703, first_name='онигири', last_name=None, username='Y_kto_to', is_bot=False)": "user",
+                    "TelegramChat(id=1667209703, type=<ChatType.PRIVATE: 'private'>, title='онигири', members=[user])": "chat",
+                }
+                f = str(message)
+                for key, value in replace.items():
+                    f = f.replace(key, value)
+                f = f + ","
+                clipboard.copy(f)
 
             print(message)
             print("Source:", message.source)
